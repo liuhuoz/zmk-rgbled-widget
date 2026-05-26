@@ -486,9 +486,6 @@ static int indicate_battery_enhanced(void) {
     LOG_INF("Enhanced battery indication: level %d%%, color %s, pattern %d", 
             battery_level, color_names[color_idx], pattern.type);
     
-    int ret = set_status_led(STATUS_BATTERY, color_idx, 0, true);
-    
-    // Apply pattern if using spatial mapping
     uint8_t battery_led = get_primary_led_for_status(STATUS_BATTERY);
     if (battery_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
         set_led_pattern(battery_led, &pattern);
@@ -508,8 +505,8 @@ static int indicate_connectivity_ws2812(void) {
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_CONN_SHOW_USB)
         color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_USB;
         LOG_INF("Enhanced USB connection indication");
-        break;
 #endif
+        break;
     default: // ZMK_TRANSPORT_BLE
 #if IS_ENABLED(CONFIG_ZMK_BLE)
         if (zmk_ble_active_profile_is_connected()) {
@@ -546,9 +543,10 @@ static int indicate_connectivity_ws2812(void) {
     }
 #endif
     
-    int ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 0, true);
+    // 【纯净修复核心 2】：将 0 和 true，改为 2500 毫秒超时 和 false（非永久）。
+    // 这样 2.5 秒后，主循环的 check_shared_led_timeouts() 就会合法地把它关掉。
+    int ret = set_status_led(STATUS_CONNECTIVITY, color_idx, 2500, false);
     
-    // Apply pattern if using spatial mapping
     uint8_t conn_led = get_primary_led_for_status(STATUS_CONNECTIVITY);
     if (conn_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
         set_led_pattern(conn_led, &pattern);
@@ -815,6 +813,9 @@ static void return_shared_led(uint8_t led_index) {
         state->is_shared = false;
         state->priority = PRIORITY_AMBIENT;
         state->share_end_time = 0;
+        
+        // 【纯净修复核心 1】：超时归还控制权时，强行终止任何呼吸/闪烁动画，恢复静态底色
+        state->anim.type = ANIM_STATIC; 
         
         LOG_DBG("Returned shared LED %d to base color %d", led_index, state->base_color);
     }
