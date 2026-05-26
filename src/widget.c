@@ -1189,20 +1189,21 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 #endif
 
     while (true) {
-        // wait until a blink item is received and process it
-        struct blink_item blink = {-1, -1, -1};
-        int result_code = k_msgq_get(&led_msgq, &blink, K_MSEC(100)); // Non-blocking with timeout for animations
+        // 【修复 1】：将默认初值设为 0，作为安全兜底，避免任何情况下的 0xFFFF 溢出
+        struct blink_item blink = {0, 0, 0}; 
+        
+        // 获取消息，超时时间保持原样的 100ms
+        int result_code = k_msgq_get(&led_msgq, &blink, K_MSEC(100)); 
 
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
-        // Check for expired shared LED timeouts
         check_shared_led_timeouts();
-        
-        // Update animations
 #   if IS_ENABLED(CONFIG_RGBLED_WIDGET_ANIMATIONS)
         update_all_animations();
 #   endif
 #endif
-        if (result_code != ENOMSG) {
+
+        // 【修复 2】：严格判断返回值。Zephyr 中获取队列成功必定返回 0
+        if (result_code == 0) {
             if (blink.duration_ms > 0) {
                 LOG_DBG("Got a blink item from msgq, color %d, duration %d", blink.color,
                         blink.duration_ms);
@@ -1228,7 +1229,6 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
                 LOG_DBG("Got a fix color item from msgq, color %d", blink.color);
                 set_rgb_leds(blink.color, 0);
             }
-            // timeout
         }
     }
 }
