@@ -1189,10 +1189,7 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 #endif
 
     while (true) {
-        // 【修复 1】：将默认初值设为 0，作为安全兜底，避免任何情况下的 0xFFFF 溢出
-        struct blink_item blink = {0, 0, 0}; 
-        
-        // 获取消息，超时时间保持原样的 100ms
+        struct blink_item blink = {0, 0, 0};
         int result_code = k_msgq_get(&led_msgq, &blink, K_MSEC(100)); 
 
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
@@ -1202,30 +1199,28 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 #   endif
 #endif
 
-        // 【修复 2】：严格判断返回值。Zephyr 中获取队列成功必定返回 0
         if (result_code == 0) {
             if (blink.duration_ms > 0) {
-                LOG_DBG("Got a blink item from msgq, color %d, duration %d", blink.color,
-                        blink.duration_ms);
+                LOG_DBG("Got a blink item from msgq, color %d, duration %d", blink.color, blink.duration_ms);
 
-                // Blink the leds, using a separation blink if necessary
+                // 1. 闪烁前的分离（制造断层感）
                 if (blink.color == led_current_color && blink.color > 0) {
                     set_rgb_leds(0, CONFIG_RGBLED_WIDGET_INTERVAL_MS);
                 }
 
+                // 2. 点亮指定颜色，并保持 duration_ms 时长
                 set_rgb_leds(blink.color, blink.duration_ms);
 
-                #if SHOW_LAYER_CHANGE
+                // 3. 【修复常亮】去除原来的宏限制，强制在闪烁结束后恢复底色
                 if (blink.color == led_layer_color && blink.color > 0) {
                     set_rgb_leds(0, CONFIG_RGBLED_WIDGET_INTERVAL_MS);
                 }
 
-                // wait interval before processing another blink
-                set_rgb_leds(led_layer_color,
-                            blink.sleep_ms > 0 ? blink.sleep_ms : CONFIG_RGBLED_WIDGET_INTERVAL_MS);
-                #endif
+                // 恢复为键盘层级颜色（如果没有开启层级颜色功能，led_layer_color 默认为 0，即安全熄灭）
+                set_rgb_leds(led_layer_color, blink.sleep_ms > 0 ? blink.sleep_ms : CONFIG_RGBLED_WIDGET_INTERVAL_MS);
 
             } else {
+                // 如果是一个持久化颜色（duration = 0），则直接点亮不熄灭
                 LOG_DBG("Got a fix color item from msgq, color %d", blink.color);
                 set_rgb_leds(blink.color, 0);
             }
