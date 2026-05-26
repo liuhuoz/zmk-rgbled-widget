@@ -269,6 +269,7 @@ static enum status_priority get_priority_for_status(enum status_type status_type
 
 static int set_status_led(enum status_type status_type, uint8_t color_idx, 
                          uint16_t duration_ms, bool persistent) {
+    LOG_WRN(">>> TRAP 1: status=%d, color=%d, timeout=%d, persist=%d", status, color, timeout, persistent);
     uint8_t primary_led = get_primary_led_for_status(status_type);
     uint8_t priority = get_priority_for_status(status_type, color_idx);
     
@@ -832,6 +833,7 @@ static void check_shared_led_timeouts(void) {
         
         if (state->is_shared && state->share_end_time > 0 && 
             current_time >= state->share_end_time) {
+            LOG_WRN(">>> TRAP 3: Timeout Triggered for LED %d! Returning to base_color.", i);
             return_shared_led(i);
         }
     }
@@ -1203,6 +1205,8 @@ extern void led_process_thread(void *d0, void *d1, void *d2) {
 #endif
 
         if (result_code == 0) {
+            LOG_WRN(">>> TRAP 2: MSGQ Received! color=%d, duration=%d, sleep=%d", 
+                blink.color, blink.duration_ms, blink.sleep_ms);
             if (blink.duration_ms > 0) {
                 LOG_DBG("Got a blink item from msgq, color %d, duration %d", blink.color, blink.duration_ms);
 
