@@ -166,6 +166,7 @@ static bool initialized = false;
 
 // track current color for persistent indicators (layer color)
 uint8_t led_current_color = 0;
+uint8_t led_layer_color = 0;
 
 // low-level method to control the LED
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
@@ -1201,7 +1202,7 @@ ZMK_SUBSCRIPTION(led_battery_listener, zmk_battery_state_changed);
 ZMK_SUBSCRIPTION(led_battery_listener, zmk_usb_conn_state_changed);
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
 
-uint8_t led_layer_color = 0;
+
 #if SHOW_LAYER_COLORS
 void update_layer_color(void) {
     uint8_t index = zmk_keymap_highest_layer_active();
