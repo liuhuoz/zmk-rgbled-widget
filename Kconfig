@@ -184,6 +184,11 @@ config RGBLED_WIDGET_BATTERY_COLOR_MISSING
     range 0 7
     default $(COLOR_MAGENTA)
 
+config RGBLED_WIDGET_BATTERY_COLOR_CHARGING
+    int "Color for battery charging"
+    range 0 7
+    default $(COLOR_GREEN)
+
 # Connectivity indicator settings
 config RGBLED_WIDGET_CONN_BLINK_MS
     int "Duration of BLE connection status blink in ms"
