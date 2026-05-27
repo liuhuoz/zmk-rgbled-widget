@@ -14,8 +14,10 @@
 #include <zmk/battery.h>
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
+#include <zmk/usb.h>
 #include <zmk/events/battery_state_changed.h>
 #include <zmk/events/ble_active_profile_changed.h>
+#include <zmk/events/usb_conn_state_changed.h>
 #include <zmk/events/endpoint_changed.h>
 #include <zmk/events/layer_state_changed.h>
 #include <zmk/events/split_peripheral_status_changed.h>
@@ -207,6 +209,11 @@ static const struct device *ws2812_dev = DEVICE_DT_GET(WS2812_NODE);
 #endif
 #ifndef CONFIG_RGBLED_WIDGET_BRIGHTNESS
 #define CONFIG_RGBLED_WIDGET_BRIGHTNESS 64
+#endif
+
+// ==================== battery charging color ====================
+#ifndef CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CHARGING
+#define CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CHARGING 2 // 默认绿色
 #endif
 
 // ==================== BT channel color ====================
@@ -498,40 +505,66 @@ static int indicate_battery_enhanced(void) {
     uint8_t battery_level = zmk_battery_state_of_charge();
     uint8_t color_idx = 0;
     struct animation_state pattern = {0};
-    int ret = 0; // 【修复】：将 ret 的声明提升到函数顶部
+    int ret = 0;
     
-    if (battery_level == 0) {
-        color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MISSING;
-        pattern.type = ANIM_BLINK;
-        pattern.period_ms = 1000;
-        pattern.start_color = color_idx;
-        pattern.end_color = 0; // Black
-    } else if (battery_level <= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_CRITICAL) {
-        color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CRITICAL;
-        pattern.type = ANIM_PULSE;
-        pattern.period_ms = 2000;
-        pattern.start_color = color_idx;
-    } else if (battery_level >= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_HIGH) {
-        color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_HIGH;
-        pattern.type = ANIM_STATIC;
-        pattern.start_color = color_idx;
-    } else if (battery_level >= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_LOW) {
-        color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MEDIUM;
-        pattern.type = ANIM_STATIC;
-        pattern.start_color = color_idx;
+    // 获取 USB 供电状态（判断是否正在充电）
+    bool is_charging = zmk_usb_is_powered();
+
+    if (is_charging) {
+        color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CHARGING;
+        
+        // nRF52 芯片的电量上报有时最高停留在 99%，保险起见可以使用 >= 99
+        if (battery_level >= 99) {
+            // 充满：常亮 3 秒
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = color_idx;
+            LOG_INF("Battery is full (%d%%), static %s", battery_level, color_names[color_idx]);
+            ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
+        } else {
+            // 充电中：呼吸 3 秒
+            pattern.type = ANIM_PULSE;
+            pattern.period_ms = 2000; // 呼吸周期 2 秒
+            pattern.start_color = color_idx;
+            LOG_INF("Battery is charging (%d%%), pulsing %s", battery_level, color_names[color_idx]);
+            ret = set_status_led(STATUS_BATTERY, color_idx, 0, true);
+        }
     } else {
-        color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_LOW;
-        pattern.type = ANIM_STATIC;
-        pattern.start_color = color_idx;
+        // 未充电：执行原有的电量分级逻辑
+        if (battery_level == 0) {
+            color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MISSING;
+            pattern.type = ANIM_BLINK;
+            pattern.period_ms = 1000;
+            pattern.start_color = color_idx;
+            pattern.end_color = 0; // Black
+        } else if (battery_level <= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_CRITICAL) {
+            color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CRITICAL;
+            pattern.type = ANIM_PULSE;
+            pattern.period_ms = 2000;
+            pattern.start_color = color_idx;
+        } else if (battery_level >= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_HIGH) {
+            color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_HIGH;
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = color_idx;
+        } else if (battery_level >= CONFIG_RGBLED_WIDGET_BATTERY_LEVEL_LOW) {
+            color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MEDIUM;
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = color_idx;
+        } else {
+            color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_LOW;
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = color_idx;
+        }
+        LOG_INF("Enhanced battery indication: level %d%%, color %s", battery_level, color_names[color_idx]);
+        ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
+    
     }
     
-    ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
-    
-    LOG_INF("Enhanced battery indication: level %d%%, color %s, pattern %d", 
-            battery_level, color_names[color_idx], pattern.type);
+    // 下发状态到 LED 引擎，duration_ms 后会自动熄灭或归还给其他状态
     
     uint8_t battery_led = get_primary_led_for_status(STATUS_BATTERY);
-    if (battery_led < CONFIG_RGBLED_WIDGET_LED_COUNT && pattern.type != ANIM_STATIC) {
+    
+    // 【关键修复】：去除了 && pattern.type != ANIM_STATIC，确保充满后由呼吸切换为常亮时不会留下残影
+    if (battery_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
         set_led_pattern(battery_led, &pattern);
     }
     
@@ -1147,6 +1180,7 @@ static int led_battery_listener_cb(const zmk_event_t *eh) {
 // run led_battery_listener_cb on battery state change event
 ZMK_LISTENER(led_battery_listener, led_battery_listener_cb);
 ZMK_SUBSCRIPTION(led_battery_listener, zmk_battery_state_changed);
+ZMK_SUBSCRIPTION(led_battery_listener, zmk_usb_conn_state_changed);
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
 
 uint8_t led_layer_color = 0;
