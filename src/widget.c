@@ -510,18 +510,29 @@ static int indicate_battery_enhanced(void) {
     // 获取 USB 供电状态（判断是否正在充电）
     bool is_charging = zmk_usb_is_powered();
 
+    // 【核心修复】：解决拔出数据线后，底色被充电状态污染导致常亮的问题
+    static bool was_charging = false;
+    if (!is_charging && was_charging) {
+        uint8_t battery_led = get_primary_led_for_status(STATUS_BATTERY);
+        if (battery_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
+            // 在展示断开时的 3 秒临时电量前，强制将 LED 的当前内存颜色恢复为键盘正常的底色
+            // 这样底层超时归还时，就不会错误地退回到“充电绿”
+            led_states[battery_led].current_color = led_layer_color;
+        }
+    }
+    was_charging = is_charging;
+
     if (is_charging) {
         color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CHARGING;
         
-        // nRF52 芯片的电量上报有时最高停留在 99%，保险起见可以使用 >= 99
         if (battery_level >= 99) {
-            // 充满：常亮 3 秒
+            // 充满：常亮 3 秒（带超时，不会污染底色）
             pattern.type = ANIM_STATIC;
             pattern.start_color = color_idx;
             LOG_INF("Battery is full (%d%%), static %s", battery_level, color_names[color_idx]);
             ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
         } else {
-            // 充电中：呼吸 3 秒
+            // 充电中：持久呼吸（无超时，持久接管）
             pattern.type = ANIM_PULSE;
             pattern.period_ms = 2000; // 呼吸周期 2 秒
             pattern.start_color = color_idx;
@@ -529,7 +540,7 @@ static int indicate_battery_enhanced(void) {
             ret = set_status_led(STATUS_BATTERY, color_idx, 0, true);
         }
     } else {
-        // 未充电：执行原有的电量分级逻辑
+        // 未充电：执行电量分级逻辑（展示 3 秒）
         if (battery_level == 0) {
             color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_MISSING;
             pattern.type = ANIM_BLINK;
@@ -556,14 +567,10 @@ static int indicate_battery_enhanced(void) {
         }
         LOG_INF("Enhanced battery indication: level %d%%, color %s", battery_level, color_names[color_idx]);
         ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
-    
     }
     
-    // 下发状态到 LED 引擎，duration_ms 后会自动熄灭或归还给其他状态
-    
+    // 下发状态到 LED 引擎
     uint8_t battery_led = get_primary_led_for_status(STATUS_BATTERY);
-    
-    // 【关键修复】：去除了 && pattern.type != ANIM_STATIC，确保充满后由呼吸切换为常亮时不会留下残影
     if (battery_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
         set_led_pattern(battery_led, &pattern);
     }
