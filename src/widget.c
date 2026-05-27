@@ -453,9 +453,9 @@ static void update_led_animation(uint8_t led_index) {
             struct led_rgb start_rgb, result_rgb;
             color_index_to_rgb(anim->start_color, &start_rgb);
             
-            uint8_t brightness = (uint8_t)(CONFIG_RGBLED_WIDGET_BRIGHTNESS * intensity);
-            result_rgb = start_rgb;
-            apply_brightness(&result_rgb, brightness);
+            result_rgb.r = (uint8_t)(start_rgb.r * intensity);
+            result_rgb.g = (uint8_t)(start_rgb.g * intensity);
+            result_rgb.b = (uint8_t)(start_rgb.b * intensity);
             
             led_colors[led_index] = result_rgb;
             ws2812_update_strip();
@@ -472,7 +472,7 @@ static void update_led_animation(uint8_t led_index) {
             color_index_to_rgb(anim->end_color, &end_rgb);
             
             rgb_interpolate(&start_rgb, &end_rgb, factor, &result_rgb);
-            apply_brightness(&result_rgb, CONFIG_RGBLED_WIDGET_BRIGHTNESS);
+            //apply_brightness(&result_rgb, CONFIG_RGBLED_WIDGET_BRIGHTNESS);
             
             led_colors[led_index] = result_rgb;
             ws2812_update_strip();
