@@ -1268,11 +1268,17 @@ static int led_capslock_listener_cb(const zmk_event_t *eh) {
         ws2812_clear_status_led(STATUS_CAPSLOCK);
         
         // 只有当前 LED 真的是由 CapsLock 控制时，才强制更新底层动画恢复到底色
-        // （如果在熄灭的瞬间刚好碰上低电量报警，就不要去打扰它）
         if (was_showing_caps) {
             pattern.type = ANIM_STATIC;
             pattern.start_color = led_layer_color;
             set_led_pattern(caps_led, &pattern);
+            
+            // 【新增找回逻辑】：大写关闭后，如果依然插着数据线，主动唤醒充电指示灯
+  #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
+            if (zmk_usb_is_powered()) {
+                indicate_battery(); 
+            }
+  #endif
         }
         LOG_INF("Caps Lock is OFF, returning LED %d to layer color", caps_led);
     }
