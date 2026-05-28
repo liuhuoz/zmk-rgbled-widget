@@ -265,6 +265,20 @@ config RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS
 
 endmenu
 
+# CAPSLOCK indicator
+config RGBLED_WIDGET_SHOW_CAPSLOCK
+    bool "Enable Caps Lock Indicator"
+    default y
+    select ZMK_HID_INDICATORS   # 【新增这一行】：强制 ZMK 开启内部的 HID 指示灯系统
+    help
+      Enable Caps Lock LED indicator on the central half.
+
+config RGBLED_WIDGET_CAPSLOCK_LED_INDEX
+    int "LED index for Caps Lock"
+    depends on (RGBLED_WIDGET_SHOW_CAPSLOCK && RGBLED_WIDGET_SPATIAL_MAPPING)
+    range 0 3
+    default 0
+
 # Layer indicator settings
 config RGBLED_WIDGET_SHOW_LAYER_CHANGE
     bool "Indicate highest active layer on each layer change with a sequence of blinks"

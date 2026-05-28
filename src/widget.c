@@ -15,6 +15,7 @@
 #include <zmk/ble.h>
 #include <zmk/endpoints.h>
 #include <zmk/usb.h>
+#include <zmk/hid_indicators.h>
 #include <zmk/events/battery_state_changed.h>
 #include <zmk/events/ble_active_profile_changed.h>
 #include <zmk/events/usb_conn_state_changed.h>
@@ -22,6 +23,7 @@
 #include <zmk/events/layer_state_changed.h>
 #include <zmk/events/split_peripheral_status_changed.h>
 #include <zmk/events/activity_state_changed.h>
+#include <zmk/events/hid_indicators_changed.h>
 #include <zmk/keymap.h>
 #include <zmk/split/bluetooth/peripheral.h>
 
@@ -36,6 +38,11 @@
 #include <zmk_rgbled_widget/widget.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+
+// Access CAPSLOCK status
+#ifndef ZMK_LED_CAPSLOCK_BIT
+#define ZMK_LED_CAPSLOCK_BIT BIT(1)
+#endif
 
 // Forward declarations for WS2812 functions
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
@@ -57,10 +64,11 @@ static void update_led_animation(uint8_t led_index);
 // Enhanced priority system
 enum status_priority {
     PRIORITY_CRITICAL_BATTERY = 0,  // Highest - never shareable
-    PRIORITY_CONNECTION_CHANGE = 1, // High - can interrupt sharing
-    PRIORITY_LAYER_CHANGE = 2,      // Medium - can use shared LEDs
-    PRIORITY_MANUAL_TRIGGER = 3,    // Normal
-    PRIORITY_AMBIENT = 4            // Lowest - always shareable
+    PRIORITY_CAPSLOCK = 1,          // High - can interrupt sharing
+    PRIORITY_CONNECTION_CHANGE = 2, // High - can interrupt sharing
+    PRIORITY_LAYER_CHANGE = 3,      // Medium - can use shared LEDs
+    PRIORITY_MANUAL_TRIGGER = 4,    // Normal
+    PRIORITY_AMBIENT = 5            // Lowest - always shareable
 };
 
 enum led_sharing_mode {
@@ -257,6 +265,15 @@ static const struct device *ws2812_dev = DEVICE_DT_GET(WS2812_NODE);
 #define CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS 3000 // 断开连接闪烁提示时间
 #endif
 
+// ==================== Caps Lock indicator ====================
+#ifndef CONFIG_RGBLED_WIDGET_CAPSLOCK_COLOR
+#define CONFIG_RGBLED_WIDGET_CAPSLOCK_COLOR 6 // 默认青色
+#endif
+
+#ifndef CONFIG_RGBLED_WIDGET_CAPSLOCK_LED_INDEX
+#define CONFIG_RGBLED_WIDGET_CAPSLOCK_LED_INDEX 0 
+#endif
+
 // Global LED state array
 static struct led_state led_states[CONFIG_RGBLED_WIDGET_LED_COUNT] = {0};
 static struct led_rgb led_colors[CONFIG_RGBLED_WIDGET_LED_COUNT] = {0};
@@ -268,6 +285,8 @@ static uint8_t get_primary_led_for_status(enum status_type status_type) {
         return CONFIG_RGBLED_WIDGET_BATTERY_LED_INDEX;
     case STATUS_CONNECTIVITY:
         return CONFIG_RGBLED_WIDGET_CONN_LED_INDEX;
+    case STATUS_CAPSLOCK:
+        return CONFIG_RGBLED_WIDGET_CAPSLOCK_LED_INDEX;
     case STATUS_LAYER:
         return CONFIG_RGBLED_WIDGET_LAYER_LED_INDEX;
     case STATUS_CUSTOM:
@@ -307,6 +326,8 @@ static enum status_priority get_priority_for_status(enum status_type status_type
         return PRIORITY_CONNECTION_CHANGE;
     case STATUS_CONNECTIVITY:
         return PRIORITY_CONNECTION_CHANGE;
+    case STATUS_CAPSLOCK:  
+        return PRIORITY_CAPSLOCK; 
     case STATUS_LAYER:
         return PRIORITY_LAYER_CHANGE;
     case STATUS_CUSTOM:
@@ -1204,6 +1225,73 @@ ZMK_LISTENER(led_battery_listener, led_battery_listener_cb);
 ZMK_SUBSCRIPTION(led_battery_listener, zmk_battery_state_changed);
 ZMK_SUBSCRIPTION(led_battery_listener, zmk_usb_conn_state_changed);
 #endif // IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
+
+#if IS_ENABLED(CONFIG_RGBLED_WIDGET_SHOW_CAPSLOCK)
+#if !IS_ENABLED(CONFIG_ZMK_SPLIT) || IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
+// ==================== Caps Lock Listener ====================
+static int led_capslock_listener_cb(const zmk_event_t *eh) {
+    if (!initialized) {
+        return 0;
+    }
+
+    struct zmk_hid_indicators_changed *ev = as_zmk_hid_indicators_changed(eh);
+    if (ev == NULL) {
+        return 0;
+    }
+
+    // 提取大写锁定状态（通过按位与判断 Bit 1 是否为 1）
+    bool caps_on = (ev->indicators & ZMK_LED_CAPSLOCK_BIT) != 0;
+    
+    uint8_t caps_led = CONFIG_RGBLED_WIDGET_CAPSLOCK_LED_INDEX;
+    struct animation_state pattern = {0};
+    
+    if (caps_on) {
+        pattern.type = ANIM_STATIC;
+        pattern.start_color = CONFIG_RGBLED_WIDGET_CAPSLOCK_COLOR;
+        
+        // 下发到状态引擎，设为持久状态 (duration = 0, persistent = true)
+        int ret = set_status_led(STATUS_CAPSLOCK, CONFIG_RGBLED_WIDGET_CAPSLOCK_COLOR, 0, true);
+        
+        // 【防穿插保护】：只有在成功接管了 LED（没有被低电量等更高优先级占用）时，才下发底层动画
+        if (ret == 0 && caps_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
+            set_led_pattern(caps_led, &pattern);
+        }
+        LOG_INF("Caps Lock is ON, setting LED %d to color %d", caps_led, CONFIG_RGBLED_WIDGET_CAPSLOCK_COLOR);
+    } else {
+        // 获取当前是否真的是 CapsLock 在亮着
+        bool was_showing_caps = false;
+        if (caps_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
+            was_showing_caps = (led_states[caps_led].status_type == STATUS_CAPSLOCK);
+        }
+        
+        // 从状态管理器中清除大写锁定占用
+        ws2812_clear_status_led(STATUS_CAPSLOCK);
+        
+        // 只有当前 LED 真的是由 CapsLock 控制时，才强制更新底层动画恢复到底色
+        if (was_showing_caps) {
+            pattern.type = ANIM_STATIC;
+            pattern.start_color = led_layer_color;
+            set_led_pattern(caps_led, &pattern);
+            
+            // 【新增找回逻辑】：大写关闭后，如果依然插着数据线，主动唤醒充电指示灯
+  #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
+            if (zmk_usb_is_powered() && zmk_battery_state_of_charge() < 99) {
+                indicate_battery(); 
+            }
+  #endif
+        }
+        LOG_INF("Caps Lock is OFF, returning LED %d to layer color", caps_led);
+    }
+    
+    return 0;
+}
+
+// 注册监听器到 ZMK 事件系统
+ZMK_LISTENER(led_capslock_listener, led_capslock_listener_cb);
+ZMK_SUBSCRIPTION(led_capslock_listener, zmk_hid_indicators_changed);
+
+#endif // End of Central-only check
+#endif // IS_ENABLED(CONFIG_RGBLED_WIDGET_SHOW_CAPSLOCK)
 
 
 #if SHOW_LAYER_COLORS
