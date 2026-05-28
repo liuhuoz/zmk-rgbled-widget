@@ -666,10 +666,10 @@ switch (profile_index) {
     } else {
         color_idx = CONFIG_RGBLED_WIDGET_CONN_COLOR_DISCONNECTED;
         pattern.type = ANIM_BLINK;
-        pattern.period_ms = CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS;
+        pattern.period_ms = 500;
         pattern.start_color = color_idx;
         pattern.end_color = 0;
-        duration_ms = 2500;
+        duration_ms = CONFIG_RGBLED_WIDGET_CONN_DISCONNECTED_DURATION_MS;
         LOG_INF("Enhanced peripheral disconnected indication");
     }
 #endif
