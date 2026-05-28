@@ -529,34 +529,37 @@ static int indicate_battery_enhanced(void) {
     struct animation_state pattern = {0};
     int ret = 0;
     
-    // 获取 USB 供电状态（判断是否正在充电）
     bool is_charging = zmk_usb_is_powered();
+    bool is_full = (battery_level >= 99);
 
-    // 【核心修复】：解决拔出数据线后，底色被充电状态污染导致常亮的问题
+    // 【核心修复升级】：解决持久状态（充电）切换到临时状态（充满/断开）时，底色被污染的问题
     static bool was_charging = false;
-    if (!is_charging && was_charging) {
+    static bool was_full = false;
+    
+    // 当：刚刚拔出数据线，或者 插着线但刚刚充满电 时
+    if ((!is_charging && was_charging) || (is_charging && is_full && !was_full)) {
         uint8_t battery_led = get_primary_led_for_status(STATUS_BATTERY);
         if (battery_led < CONFIG_RGBLED_WIDGET_LED_COUNT) {
-            // 在展示断开时的 3 秒临时电量前，强制将 LED 的当前内存颜色恢复为键盘正常的底色
-            // 这样底层超时归还时，就不会错误地退回到“充电绿”
+            // 强制将底色记忆恢复为层级底色，防止系统把“充电绿”当成背景存下来
             led_states[battery_led].current_color = led_layer_color;
         }
     }
     was_charging = is_charging;
+    was_full = is_full;
 
     if (is_charging) {
         color_idx = CONFIG_RGBLED_WIDGET_BATTERY_COLOR_CHARGING;
         
-        if (battery_level >= 99) {
-            // 充满：常亮 3 秒（带超时，不会污染底色）
+        if (is_full) {
+            // 充满：常亮 3 秒（带超时，3秒后彻底安全熄灭）
             pattern.type = ANIM_STATIC;
             pattern.start_color = color_idx;
             LOG_INF("Battery is full (%d%%), static %s", battery_level, color_names[color_idx]);
             ret = set_status_led(STATUS_BATTERY, color_idx, 3000, false);
         } else {
-            // 充电中：持久呼吸（无超时，持久接管）
+            // 充电中：持久呼吸
             pattern.type = ANIM_PULSE;
-            pattern.period_ms = 2000; // 呼吸周期 2 秒
+            pattern.period_ms = 2000; 
             pattern.start_color = color_idx;
             LOG_INF("Battery is charging (%d%%), pulsing %s", battery_level, color_names[color_idx]);
             ret = set_status_led(STATUS_BATTERY, color_idx, 0, true);
