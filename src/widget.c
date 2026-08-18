@@ -1345,15 +1345,17 @@ void indicate_battery(void) {
 }
 
 static int led_battery_listener_cb(const zmk_event_t *eh) {
-    if (!initialized) {
-        return 0;
-    }
-    if (current_activity_state != ZMK_ACTIVITY_ACTIVE) {
+if (!initialized) {
         return 0;
     }
     bool is_usb_event = (as_zmk_usb_conn_state_changed(eh) != NULL);
-    struct zmk_battery_state_changed *bat_ev = as_zmk_battery_state_changed(eh);
     bool is_charging = zmk_usb_is_powered();
+
+    if (current_activity_state != ZMK_ACTIVITY_ACTIVE && !is_usb_event && !is_charging) {
+        return 0;
+    }
+
+    struct zmk_battery_state_changed *bat_ev = as_zmk_battery_state_changed(eh);
 
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
     if (bat_ev != NULL && bat_ev->state_of_charge > 0) {
