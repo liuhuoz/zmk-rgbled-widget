@@ -1527,22 +1527,35 @@ static int led_activity_listener_cb(const zmk_event_t *eh) {
         return 0;
     }
 
+    // record active state，distinguishing IDLE or SLEEP
+    enum zmk_activity_state previous_state = current_activity_state;
     current_activity_state = ev->state;
 
     switch (ev->state) {
     case ZMK_ACTIVITY_ACTIVE:
-        LOG_INF("Activity ACTIVE, restoring LED state");
+        LOG_INF("Activity ACTIVE, previous state: %d", previous_state);
 #if IS_ENABLED(CONFIG_RGBLED_WIDGET_WS2812)
-        // Restore layer color and refresh status indicators
+        
+        // Restore layer color and refresh status indicators Only if woke up from SLEEP, not from IDLE
+        if (previous_state == ZMK_ACTIVITY_SLEEP) {
+            LOG_INF("Woke up from SLEEP, triggering full status report.");
 #if SHOW_LAYER_COLORS
-        update_layer_color();
+            update_layer_color();
 #endif
-        indicate_connectivity();
+            indicate_connectivity();
 #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
-        indicate_battery();
+            indicate_battery();
 #endif
+        } else {
+            // Woke up from IDLE, do nothing
+            LOG_INF("Woke up from IDLE, keeping LEDs powered off to save battery.");
+        }
+
 #else
-        set_rgb_leds(led_layer_color, 0);
+        // compatible with non-WS2812 
+        if (previous_state == ZMK_ACTIVITY_SLEEP) {
+            set_rgb_leds(led_layer_color, 0);
+        }
 #endif
         break;
     case ZMK_ACTIVITY_IDLE:
@@ -1555,7 +1568,7 @@ static int led_activity_listener_cb(const zmk_event_t *eh) {
             led_colors[i] = (struct led_rgb){0, 0, 0};
             led_states[i].anim.type = ANIM_STATIC;
         }
-        ws2812_update_strip_locked();
+        ws2812_update_strip_locked(); 
         if (ext_power_dev && ext_power_is_on) {
             k_work_cancel_delayable(&ext_power_off_work);
             ext_power_disable(ext_power_dev);
