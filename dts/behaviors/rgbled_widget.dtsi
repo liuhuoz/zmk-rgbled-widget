@@ -15,5 +15,9 @@
             #binding-cells = <0>;
             indicate-layer;
         };
+        rgbrepo: rgbrepo {
+            compatible = "zmk,behavior-rgbled-status-report";
+            #binding-cells = <0>;
+        };
     };
 };

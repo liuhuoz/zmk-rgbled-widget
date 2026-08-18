@@ -1,0 +1,9 @@
+description: RGB LED Status Report Behavior
+
+compatible: "zmk,behavior-rgbled-status-report"
+
+properties:
+  "#binding-cells":
+    type: int
+    required: true
+    const: 0

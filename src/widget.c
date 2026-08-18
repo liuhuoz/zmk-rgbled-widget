@@ -1777,6 +1777,7 @@ K_THREAD_DEFINE(led_init_tid, 1024, led_init_thread, NULL, NULL, NULL,
 // ===================================================================
 // Custom Behavior: Trigger Status Report
 // ===================================================================
+#include <drivers/behavior.h>
 #include <zmk/behavior.h>
 #define DT_DRV_COMPAT zmk_behavior_rgbled_status_report
 #if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
@@ -1820,8 +1821,8 @@ static const struct behavior_driver_api behavior_rgbled_status_report_driver_api
 };
 
 // 实例化这个 Device Tree 节点
-DEVICE_DT_INST_DEFINE(0, behavior_rgbled_status_report_init, NULL, NULL, NULL,
-                      APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
-                      &behavior_rgbled_status_report_driver_api);
+BEHAVIOR_DT_INST_DEFINE(0, behavior_rgbled_status_report_init, NULL, NULL, NULL,
+                        POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
+                        &behavior_rgbled_status_report_driver_api);
 
 #endif // DT_HAS_COMPAT_STATUS_OKAY
