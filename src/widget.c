@@ -1773,3 +1773,55 @@ extern void led_init_thread(void *d0, void *d1, void *d2) {
 // run init thread on boot for initial battery+output checks
 K_THREAD_DEFINE(led_init_tid, 1024, led_init_thread, NULL, NULL, NULL,
                 K_LOWEST_APPLICATION_THREAD_PRIO, 0, 200);
+
+// ===================================================================
+// Custom Behavior: Trigger Status Report
+// ===================================================================
+#include <zmk/behavior.h>
+#define DT_DRV_COMPAT zmk_behavior_rgbled_status_report
+#if DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT)
+
+static int behavior_rgbled_status_report_init(const struct device *dev) {
+    return 0; // initialization
+}
+
+// press key callback function
+static int on_rgbled_status_report_binding_pressed(struct zmk_behavior_binding *binding,
+                                            struct zmk_behavior_binding_event event) {
+    LOG_INF("Manual status report triggered via custom behavior");
+    
+#if SHOW_LAYER_COLORS
+    update_layer_color();
+#endif
+    indicate_connectivity();
+#if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
+    indicate_battery();
+#endif
+
+    // return ZMK_BEHAVIOR_OPAQUE to indicate that the event has been handled and should not propagate further
+    return ZMK_BEHAVIOR_OPAQUE; 
+}
+
+// release key callback function
+static int on_rgbled_status_report_binding_released(struct zmk_behavior_binding *binding,
+                                             struct zmk_behavior_binding_event event) {
+    return ZMK_BEHAVIOR_OPAQUE; 
+}
+
+// define ZMK behavior api
+static const struct behavior_driver_api behavior_rgbled_status_report_driver_api = {
+    .binding_pressed = on_rgbled_status_report_binding_pressed,
+    .binding_released = on_rgbled_status_report_binding_released,
+#if IS_ENABLED(CONFIG_ZMK_SPLIT)
+    .locality = BEHAVIOR_LOCALITY_GLOBAL 
+#else
+    .locality = BEHAVIOR_LOCALITY_CENTRAL
+#endif
+};
+
+// 实例化这个 Device Tree 节点
+DEVICE_DT_INST_DEFINE(0, behavior_rgbled_status_report_init, NULL, NULL, NULL,
+                      APPLICATION, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT,
+                      &behavior_rgbled_status_report_driver_api);
+
+#endif // DT_HAS_COMPAT_STATUS_OKAY
